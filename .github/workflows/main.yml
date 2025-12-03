@@ -31,11 +31,9 @@ jobs:
         cp labels.csv data/
 
     - name: Train Model
-      # Обучаем модель, чтобы файл *.joblib был доступен для тестов
       run: python train_model.py
       env:
         PYTHONPATH: .
 
     - name: Run Tests
-      # Запуск тестов, которые проверяют, что API работает с обученной моделью
       run: pytest test_api.py
