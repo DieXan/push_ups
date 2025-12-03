@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🏋️ AI Детектор Отжиманий</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #f4f7f9; }
+        
+        /* Контейнер для видео и оверлеев */
+        .video-container {
+            position: relative;
+            background-color: #000;
+            border-radius: 16px;
+            overflow: hidden;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+            min-height: 480px;
+        }
+
+        #video_feed {
+            width: 100%;
+            height: auto;
+            display: block;
+            opacity: 0.8; /* Немного затемняем видео для контраста текста */
+        }
+
+        /* Оверлеи (текст поверх видео) */
+        .overlay-stats {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            z-index: 10;
+        }
+
+        .stat-box {
+            background-color: rgba(0, 0, 0, 0.7);
+            padding: 15px 25px;
+            border-radius: 12px;
+            border-left: 5px solid #3b82f6;
+            backdrop-filter: blur(5px);
+            color: white;
+            transition: all 0.3s ease;
+        }
+
+        .count-text { font-size: 3rem; font-weight: 800; line-height: 1; }
+        .label-text { font-size: 0.9rem; text-transform: uppercase; letter-spacing: 1px; opacity: 0.8; }
+        .status-text { font-size: 1.5rem; font-weight: 700; }
+        .feedback-text { font-size: 1.1rem; color: #fbbf24; }
+
+        /* Анимация обновления счета */
+        .pulse-anim { animation: pulse 0.3s ease-in-out; }
+        @keyframes pulse { 0% { transform: scale(1); } 50% { transform: scale(1.1); } 100% { transform: scale(1); } }
+    </style>
+</head>
+<body class="p-4 sm:p-8">
+
+<div class="container mx-auto max-w-7xl">
+    <div class="lg:flex lg:space-x-8">
+        <!-- Панель управления -->
+        <div class="lg:w-1/3 mb-8 lg:mb-0 bg-white p-6 rounded-2xl shadow-lg h-fit">
+            <h2 class="text-xl font-bold text-gray-700 mb-4">Настройки</h2>
+            
+            <div class="mb-4">
+                <label class="block text-sm font-medium text-gray-600 mb-2">Выбор камеры</label>
+                <select id="camera_select" class="block w-full px-4 py-2 border rounded-lg bg-gray-50">
+                    {% for id in camera_ids %}
+                        <option value="{{ id }}">Камера ID: {{ id }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            
+            <button id="start_tracking_btn" class="w-full py-3 text-white font-bold rounded-xl bg-blue-600 hover:bg-blue-700 transition shadow-md">
+                Начать тренировку
+            </button>
+            
+            <div class="mt-6 border-t pt-4">
+                <h3 class="font-semibold text-gray-700">Статус системы:</h3>
+                <div id="system_status" class="mt-2 text-sm text-gray-500">Ожидание запуска...</div>
+            </div>
+        </div>
+
+        <!-- Видео + Оверлеи -->
+        <div class="lg:w-2/3 video-container">
+            <!-- Видео поток -->
+            <img id="video_feed" src="" style="display:none;">
+            
+            <!-- HTML Слой интерфейса (скрыт до старта) -->
+            <div id="ui_layer" style="display:none;" class="overlay-stats">
+                <!-- Счетчик -->
+                <div class="stat-box" id="box_count">
+                    <div class="label-text">Повторы</div>
+                    <div class="count-text" id="disp_count">0</div>
+                </div>
+                
+                <!-- Статус -->
+                <div class="stat-box" id="box_status" style="border-left-color: #fbbf24;">
+                    <div class="label-text">Статус</div>
+                    <div class="status-text" id="disp_status">ОЖИДАНИЕ</div>
+                </div>
+                
+                <!-- Подсказка -->
+                <div class="stat-box" style="border-left-color: #9ca3af; padding: 10px 20px;">
+                    <div class="feedback-text" id="disp_feedback">Встаньте в кадр</div>
+                </div>
+            </div>
+            
+            <!-- Заглушка, когда видео выключено -->
+            <div id="placeholder" class="absolute inset-0 flex items-center justify-center text-white/30 text-2xl font-bold">
+                КАМЕРА ОТКЛЮЧЕНА
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    const videoElement = document.getElementById('video_feed');
+    const uiLayer = document.getElementById('ui_layer');
+    const placeholder = document.getElementById('placeholder');
+    const startButton = document.getElementById('start_tracking_btn');
+    const systemStatus = document.getElementById('system_status');
+    
+    // Элементы дисплея
+    const dispCount = document.getElementById('disp_count');
+    const dispStatus = document.getElementById('disp_status');
+    const dispFeedback = document.getElementById('disp_feedback');
+    const boxStatus = document.getElementById('box_status');
+    const boxCount = document.getElementById('box_count');
+
+    let isTracking = false;
+    let statusInterval = null;
+    let previousCount = 0;
+
+    async function updateStats() {
+        if (!isTracking) return;
+        try {
+            const response = await fetch('/status');
+            const data = await response.json();
+            
+            if (data.count !== previousCount) {
+                dispCount.textContent = data.count;
+                boxCount.classList.remove('pulse-anim');
+                void boxCount.offsetWidth; // триггер рефлоу
+                boxCount.classList.add('pulse-anim');
+                previousCount = data.count;
+            }
+
+            dispStatus.textContent = data.status;
+            dispFeedback.textContent = data.feedback;
+
+            if (data.status === 'UP' || data.status === 'ВВЕРХ' || data.status.includes('СТАРТ')) {
+                boxStatus.style.borderLeftColor = '#22c55e'; // Зеленый
+            } else if (data.status.includes('DOWN') || data.status.includes('ВНИЗ')) {
+                boxStatus.style.borderLeftColor = '#f97316'; // Оранжевый
+            } else if (data.status.includes('ERROR') || data.status.includes('НЕ')) {
+                boxStatus.style.borderLeftColor = '#ef4444'; // Красный
+            } else {
+                boxStatus.style.borderLeftColor = '#eab308'; // Желтый
+            }
+
+            systemStatus.textContent = `API Confidence: ${(data.confidence * 100).toFixed(1)}% | Frames Down: ${data.down_state_frames} | Form: ${data.is_form_correct ? 'OK' : 'BAD'}`;
+
+        } catch (e) {
+            console.error("Ошибка получения статуса:", e);
+        }
+    }
+
+    startButton.addEventListener('click', () => {
+        const cameraId = document.getElementById('camera_select').value;
+        
+        if (isTracking) {
+            isTracking = false;
+            videoElement.style.display = 'none';
+            videoElement.src = '';
+            uiLayer.style.display = 'none';
+            placeholder.style.display = 'flex';
+            clearInterval(statusInterval);
+            
+            startButton.textContent = 'Начать тренировку';
+            startButton.className = 'w-full py-3 text-white font-bold rounded-xl bg-blue-600 hover:bg-blue-700 transition shadow-md';
+            systemStatus.textContent = "Остановлено";
+        } else {
+            isTracking = true;
+            videoElement.src = `/video_feed/${cameraId}`;
+            videoElement.style.display = 'block';
+            uiLayer.style.display = 'flex';
+            placeholder.style.display = 'none';
+            
+            statusInterval = setInterval(updateStats, 150);
+            
+            startButton.textContent = 'Остановить';
+            startButton.className = 'w-full py-3 text-white font-bold rounded-xl bg-red-600 hover:bg-red-700 transition shadow-md';
+            systemStatus.textContent = "Подключение к видеопотоку...";
+        }
+    });
+</script>
+</body>
+</html>
