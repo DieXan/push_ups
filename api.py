@@ -3,9 +3,12 @@ from pydantic import BaseModel
 import joblib
 import numpy as np
 import uvicorn
+from pathlib import Path
+
+MODEL_FILE = Path("pushup_rf_model.joblib")
 
 try:
-    MODEL = joblib.load('C:\\Users\\DieXan\\Desktop\\maga\\python_labs\\push_ups\\pushup_rf_model.joblib')
+    MODEL = joblib.load(MODEL_FILE)
     
     FEATURE_NAMES = [
         "right_elbow_right_shoulder_right_hip",
@@ -20,7 +23,7 @@ try:
     CLASS_MAP = {0: "pushups_down", 1: "pushups_up"}
     
 except FileNotFoundError:
-    print("ПРЕДУПРЕЖДЕНИЕ: Файл pushup_rf_model.joblib не найден. API не будет работать.")
+    print(f"ПРЕДУПРЕЖДЕНИЕ: Файл {MODEL_FILE} не найден. API не будет работать.")
     MODEL = None
 except Exception as e:
     print(f"Ошибка при загрузке модели: {e}")
@@ -37,14 +40,10 @@ class PoseAngles(BaseModel):
 
 @app.get("/health", tags=["Monitoring"])
 def get_health():
-    """Проверка состояния API и загрузки модели."""
     return {"status": "ok", "model_loaded": MODEL is not None}
 
 @app.post("/predict_pose", tags=["Prediction"])
 def predict_pose(data: PoseAngles):
-    """
-    Классифицирует позу как 'pushups_up' (1) или 'pushups_down' (0) и возвращает уверенность (confidence).
-    """
     if MODEL is None:
         raise HTTPException(status_code=503, detail="Модель машинного обучения не загружена.")
     
@@ -54,7 +53,7 @@ def predict_pose(data: PoseAngles):
     try:
         features = np.array(data.angles).reshape(1, -1)
         
-        prediction = MODEL.predict(features)[0] # 0 или 1
+        prediction = MODEL.predict(features)[0]
         
         probabilities = MODEL.predict_proba(features)[0]
         

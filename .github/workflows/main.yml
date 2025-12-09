@@ -1,4 +1,4 @@
-name: CI Pipeline
+name: CI/CD Pushup Detector
 
 on:
   push:
@@ -9,6 +9,7 @@ on:
 jobs:
   build_and_test:
     runs-on: ubuntu-latest
+    
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
@@ -22,9 +23,9 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
-        # Для CI, где нет камеры, нужно mock'ать cv2, но пока просто установим.
+        pip install uvicorn gunicorn # Для запуска в CI/CD и Heroku
 
-    - name: Copy data (assuming they are in the root for simplicity)
+    - name: Prepare Data (Use relative paths)
       run: |
         mkdir -p data
         cp angles.csv data/
@@ -32,8 +33,23 @@ jobs:
 
     - name: Train Model
       run: python train_model.py
-      env:
-        PYTHONPATH: .
 
     - name: Run Tests
       run: pytest test_api.py
+
+  deploy_api:
+    needs: build_and_test
+    runs-on: ubuntu-latest
+    if: success() && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Deploy FastAPI API to Heroku
+      uses: dineshsonachalam/heroku-deploy@v2.0.2
+      with:
+        heroku_api_key: ${{ secrets.HEROKU_API_KEY }}
+        heroku_app_name: ${{ secrets.HEROKU_API_APP_NAME }}
+        heroku_email: ${{ secrets.HEROKU_EMAIL }}
+        workingdir: .
