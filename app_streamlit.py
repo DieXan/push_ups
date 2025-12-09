@@ -5,7 +5,7 @@ from pose_detector import poseDetector
 import numpy as np
 import requests
 
-API_URL = "http://127.0.0.1:8000/predict_pose" 
+API_URL = "https://push-ups-7reb.onrender.com/predict_pose" 
 CONFIDENCE_THRESHOLD = 0.75 
 API_INTERVAL = 0.15 
 MIN_DOWN_FRAMES = 3 
